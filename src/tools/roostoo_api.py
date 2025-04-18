@@ -1,37 +1,68 @@
-# src/tools/roostoo_api.py
-import os, time, hmac, hashlib, requests, pandas as pd
+"""
+Roostoo API wrappers + analyzeMarket tool (JSON‑safe).
+"""
+import hashlib, hmac, time
+from typing import Dict, Any
+import pandas as pd
+import requests
 from langchain.tools import tool
-from src.config import ROOSTOO_KEY, ROOSTOO_SECRET
+from ta.momentum import RSIIndicator
+from ta.trend import SMAIndicator
+from ta.volatility import BollingerBands
 
-BASE = "https://mock-api.roostoo.com/v2"
+from src.config import ROOSTOO_KEY, ROOSTOO_SECRET
+from .ta_signals import _last_cross
+
+BASE_URL = "https://mock-api.roostoo.com/v2"
 
 def _sign(payload: str) -> str:
     return hmac.new(ROOSTOO_SECRET.encode(), payload.encode(), hashlib.sha256).hexdigest()
 
-# ── 1. GET KLINES ────────────────────────────────────────────────────────────
-@tool(args_schema={"symbol": str, "interval": str, "limit": int})
-def getKlines(symbol: str, interval: str = "1m", limit: int = 500):
-    """Return recent candlesticks for `symbol` as a pandas DataFrame."""
-    qs = f"symbol={symbol}&interval={interval}&limit={limit}&timestamp={int(time.time()*1000)}"
-    headers = {"RST-API-KEY": ROOSTOO_KEY, "MSG-SIGNATURE": _sign(qs)}
-    r = requests.get(f"{BASE}/market/klines?{qs}", headers=headers, timeout=10)
-    r.raise_for_status()
-    df = pd.DataFrame(r.json(), columns=["ts", "o", "h", "l", "c", "v"]).astype(float)
-    return df
+def _headers(payload: str) -> Dict[str, str]:
+    return {"RST-API-KEY": ROOSTOO_KEY, "MSG-SIGNATURE": _sign(payload)}
 
-# ── 2. PLACE ORDER ──────────────────────────────────────────────────────────
-@tool(args_schema={
-    "symbol": str, "side": str, "qty": float, "price": float
-})
-def placeOrder(symbol: str, side: str, qty: float, price: float):
-    """Submit a mock trade to Roostoo and return the order response JSON."""
-    body = {
+# -----------------------------------------------------------------
+@tool
+def getKlines(symbol: str, interval: str = "1m", limit: int = 500) -> list:
+    """Return recent klines (OHLCV rows) as JSON list."""
+    qs = f"symbol={symbol.upper()}&interval={interval}&limit={limit}&timestamp={int(time.time()*1000)}"
+    r = requests.get(f"{BASE_URL}/market/klines?{qs}", headers=_headers(qs), timeout=10)
+    r.raise_for_status()
+    return r.json()
+
+@tool
+def placeOrder(symbol: str, side: str, qty: float, price: float) -> dict:
+    """Place a mock order and return Roostoo response JSON."""
+    body: Dict[str, Any] = {
         "symbol": symbol.upper(), "side": side.upper(),
         "qty": qty, "price": price,
         "timestamp": int(time.time()*1000)
     }
     payload = "&".join(f"{k}={v}" for k, v in body.items())
-    headers = {"RST-API-KEY": ROOSTOO_KEY, "MSG-SIGNATURE": _sign(payload)}
-    r = requests.post(f"{BASE}/order/new", json=body, headers=headers, timeout=10)
+    r = requests.post(f"{BASE_URL}/order/new", json=body, headers=_headers(payload), timeout=10)
     r.raise_for_status()
     return r.json()
+
+# -----------------------------------------------------------------
+@tool
+def analyzeMarket(symbol: str, interval: str = "1m", limit: int = 500) -> dict:
+    """
+    Fetch klines + compute MA‑cross, RSI, Bollinger signals.
+    Returns JSON-safe dict.
+    """
+    rows = getKlines(symbol, interval, limit)
+    df = pd.DataFrame(rows, columns=["ts","o","h","l","c","v"]).astype(float)
+
+    fast = SMAIndicator(df["c"], 9).sma_indicator()
+    slow = SMAIndicator(df["c"], 21).sma_indicator()
+    ma_cross = _last_cross(fast, slow)
+
+    rsi_val = RSIIndicator(df["c"], 14).rsi().iloc[-1]
+    rsi_sig = "oversold" if rsi_val < 30 else "overbought" if rsi_val > 70 else None
+
+    bb = BollingerBands(df["c"], 20, 2)
+    price = df["c"].iloc[-1]
+    bb_sig = "lower_break" if price < bb.bollinger_lband().iloc[-1] else \
+             "upper_break" if price > bb.bollinger_hband().iloc[-1] else None
+
+    return {"price": round(price, 4), "ma_cross": ma_cross, "rsi": rsi_sig, "bollinger": bb_sig}
