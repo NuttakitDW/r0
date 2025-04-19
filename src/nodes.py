@@ -18,6 +18,8 @@ from langchain_core.utils.function_calling import convert_to_openai_function
 from src.tools import TOOLS, tool_runner          # tool belt & dispatcher
 from src.agent_state import State                 # TypedDict schema
 
+import json
+
 
 # ── 1. SYSTEM PROMPT ──────────────────────────────────────────────────
 SYSTEM_MSG = (
@@ -71,15 +73,16 @@ def think_node(state: State) -> Dict[str, Any]:
 
 # ── 4. ACT NODE  ──────────────────────────────────────────────────────
 def act_node(state: State) -> Dict[str, Any]:
-    """
-    Execute the tool chosen by think_node and store its JSON result.
-    """
     action = state.get("action")
     if not action:
         return {}
 
-    # tool_runner expects {"tool": name, "args": {...}}
-    result = tool_runner({"tool": action["name"], "args": action["arguments"]})
+    # 1) arguments may be a JSON string; decode to dict
+    raw_args = action["arguments"]
+    args = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
 
-    # Clear action so think_node knows whether to stop
+    # 2) run the chosen tool with real kwargs
+    result = tool_runner({"tool": action["name"], "args": args})
+
     return {"result": result, "action": None}
+
