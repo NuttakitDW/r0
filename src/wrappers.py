@@ -153,3 +153,98 @@ def place_order(pair: str, side: str, otype: str,
         raise RoostooError(f"Exchange error: {data.get('ErrMsg', data)}")
 
     return data
+
+def query_order(
+    *,
+    order_id: str | None = None,
+    pair: str | None = None,
+    offset: int | None = None,
+    limit: int | None = None,
+    pending_only: bool | None = None,
+) -> dict:
+
+    ts = int(time.time() * 1000)
+
+    # — 1. Build body dict ---------------------------------------------------
+    body: dict[str, str] = {"timestamp": str(ts)}
+
+    if order_id:
+        body["order_id"] = str(order_id)
+    else:  # order_id absent → other filters allowed
+        if pair:
+            body["pair"] = pair
+        if offset is not None:
+            body["offset"] = str(offset)
+        if limit is not None:
+            body["limit"] = str(limit)
+        if pending_only is not None:
+            body["pending_only"] = "TRUE" if pending_only else "FALSE"
+
+    # Canonical payload (alpha‑sorted keys)
+    payload = "&".join(f"{k}={body[k]}" for k in sorted(body))
+    sig = _sign(payload)
+
+    url = f"{BASE}/query_order"
+    hdr = {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "RST-API-KEY": KEY,
+        "MSG-SIGNATURE": sig,
+    }
+
+    # — 2. POST the form body -------------------------------------------------
+    r = requests.post(url, data=payload, headers=hdr, timeout=10)
+
+    # — 3. Robust error handling ---------------------------------------------
+    try:
+        data = r.json()
+    except ValueError:
+        data = {"raw": r.text.strip()}
+
+    if not r.ok:
+        raise RoostooError(f"HTTP {r.status_code} {r.reason} — {data}")
+    if isinstance(data, dict) and (not data.get("Success", True) or data.get("ErrMsg")):
+        raise RoostooError(f"Exchange error: {data.get('ErrMsg', data)}")
+
+    return data
+
+# ── Cancel order (signed) ──────────────────────────────────────────
+def cancel_order(
+    *,
+    order_id: str | None = None,
+    pair: str | None = None,
+) -> dict:
+
+    if order_id and pair:
+        raise ValueError("Provide only one of order_id OR pair, not both.")
+
+    ts   = int(time.time() * 1000)
+    body: dict[str, str] = {"timestamp": str(ts)}
+
+    if order_id:
+        body["order_id"] = str(order_id)
+    elif pair:
+        body["pair"] = pair
+
+    payload = "&".join(f"{k}={body[k]}" for k in sorted(body))
+    sig     = _sign(payload)
+
+    url = f"{BASE}/cancel_order"
+    hdr = {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "RST-API-KEY": KEY,
+        "MSG-SIGNATURE": sig,
+    }
+
+    r = requests.post(url, data=payload, headers=hdr, timeout=10)
+
+    try:
+        data = r.json()
+    except ValueError:
+        data = {"raw": r.text.strip()}
+
+    if not r.ok:
+        raise RoostooError(f"HTTP {r.status_code} {r.reason} — {data}")
+    if isinstance(data, dict) and (not data.get("Success", True) or data.get("ErrMsg")):
+        raise RoostooError(f"Exchange error: {data.get('ErrMsg', data)}")
+
+    return data
