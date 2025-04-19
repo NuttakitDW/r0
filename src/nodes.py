@@ -42,6 +42,7 @@ llm = ChatOpenAI(
 
 # ── 3. THINK NODE  ────────────────────────────────────────────────────
 def think_node(state: State) -> Dict[str, Any]:
+    print("➜ think", state.get("action"))
     """
     Decide next action based on the latest user prompt *and* the
     previous tool result (if any). Returns either:
@@ -73,6 +74,7 @@ def think_node(state: State) -> Dict[str, Any]:
 
 # ── 4. ACT NODE  ──────────────────────────────────────────────────────
 def act_node(state: State) -> Dict[str, Any]:
+    print("  ↳ act  ", state["action"])
     action = state.get("action")
     if not action:
         return {}
