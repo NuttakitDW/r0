@@ -12,6 +12,13 @@ def _sign(payload: str) -> str:
 
 class RoostooError(RuntimeError):
     """Raised when the exchange rejects the request or returns non‑200."""
+    
+def get_server_time() -> int:
+    """GET /v3/serverTime – returns epoch‑ms."""
+    url = f"{BASE}/serverTime"
+    r = requests.get(url, timeout=5)
+    r.raise_for_status()
+    return int(r.json()["ServerTime"])
 
 def place_order(pair: str, side: str, otype: str,
                 quantity: str, price: float | None = None) -> dict:
