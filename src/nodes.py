@@ -21,6 +21,8 @@ from src.memory import save_memory, retrieve_memory
 from src.tools import TOOLS, tool_runner          # tool belt & dispatcher
 from src.agent_state import State                 # TypedDict schema
 
+from functools import wraps
+
 import json
 
 
@@ -65,7 +67,18 @@ llm = ChatOpenAI(
     model_kwargs={"functions": FUNCTION_SCHEMAS}, 
 )
 
+def log_node(label: str):
+    def decorator(fn):
+        @wraps(fn)
+        def wrapper(state: State, *args, **kwargs):
+            # identical format at every hop
+            print(f"  ↳ {label:<6}", state.get("action"))
+            return fn(state, *args, **kwargs)
+        return wrapper
+    return decorator
+
 # ── 3. THINK NODE  ────────────────────────────────────────────────────
+@log_node("think")
 def think_node(state: State) -> dict:
     """
     Decide next action based on:
@@ -93,11 +106,11 @@ def think_node(state: State) -> dict:
     return {"action": fc} if fc else {"result": resp.content.strip()}
 
 # ── 4. ACT NODE  ──────────────────────────────────────────────────────
+@log_node("act")
 def act_node(state: State) -> Dict[str, Any]:
     action = state.get("action")
     if not action:
         return {}
-    print("  ↳ act  ", state["action"])
 
     # 1) arguments may be a JSON string; decode to dict
     raw_args = action["arguments"]
@@ -105,11 +118,12 @@ def act_node(state: State) -> Dict[str, Any]:
 
     # 2) run the chosen tool with real kwargs
     result = tool_runner({"tool": action["name"], "args": args})
+    state["action"] = None
 
     return {"result": result, "action": None}
 
 # ── 4. MEMORY NODE  ──────────────────────────────────────────────────────
-
+@log_node("memory")
 def memory_node(state: State) -> dict:
     text   = state["text"]
     result = state.get("result")         # already a string/int
