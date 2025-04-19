@@ -1,89 +1,90 @@
+# R0 – Roostoo Trading Agent
 
-# R0 − LangGraph Medium‑Article Agent
-
-![LangGraph](https://img.shields.io/badge/LangGraph-v0.1-blueviolet) ![License](https://img.shields.io/badge/license-MIT-green)
-
-**R0** is a minimalist example of an *AI agent* built with **[LangGraph](https://github.com/langchain-ai/langgraph)**.
-It reads an article, then in three autonomous steps:
-
-1. **Classifies** the text (Blog / News / Research / Other)  
-2. **Extracts entities** (Person, Organisation, Location)  
-3. **Summarises** the article in one short sentence  
-
-No external databases, vector stores, or toolchains—just pure LangGraph
-nodes wired into a deterministic flow.
+R0 is an **autonomous trading assistant** built with the LangGraph orchestration framework.  
+It reasons with GPT‑4‑o mini (or GPT‑4.1), executes signed HTTP calls to the [Roostoo mock exchange](https://mock-api.roostoo.com), and stores long‑term memories in a **Pinecone** serverless vector index.
 
 ---
+## ✨ Key Features
 
-## 📂 Project structure
+| Capability | Implementation | Reference |
+|-------------|----------------|-----------|
+| Single‑turn reasoning loop | `think → act → memory → END` graph | LangGraph docs[^1] |
+| Secure trading tools | Typed wrappers in `src/wrappers.py`; exposed via `src/tools.py` | API spec[^2] |
+| LLM brain | `langchain_openai.ChatOpenAI` with tool‑binding | OpenAI model list[^3] |
+| Long‑term memory | Pinecone serverless (AWS us‑east‑1) | Pinecone quick‑start[^4] |
 
-```text
-ai_agent_project/
-├─ .env.example            # template for secrets
-├─ README.md               # you are here
-├─ test_setup.py           # hello‑LLM sanity check
-└─src/
-   ├─ agent_state.py      # defines the shape of the boxes (state).
-   ├─ nodes.py            # defines what happens inside each box.
-   └─ agent_graph.py      # defines how the boxes are connected.
+---
+## 🗂 Project Layout
 
+```
+├─ src/
+│  ├─ wrappers.py       # low‑level HTTP helpers (HMAC, retries)
+│  ├─ tools.py          # LangChain Tool objects + dispatcher
+│  ├─ agent_state.py    # TypedDict schema for graph state
+│  ├─ nodes.py          # think_node · act_node · memory_node
+│  ├─ agent_graph.py    # LangGraph wiring (one‑pass)
+│  └─ memory.py         # Pinecone helper (save / retrieve)
+└─ README.md            # you are here
 ```
 
 ---
-
-## 🚀 Quick‑start
+## ⚙ Installation
 
 ```bash
-# 1. clone & enter
-git clone https://github.com/NuttakitDW/ai-agent-poc.git && cd ai-agent-poc.git
+python3 -m venv agent_env && source agent_env/bin/activate
+pip install -r requirements.txt  # langgraph, langchain-openai, pinecone-docs …
+```
 
-# 2. python env
-python3 -m venv agent_env
-source agent_env/bin/activate  # Windows: agent_env\Scripts\activate
-
-# 3. install deps
-pip install -r requirements.txt
-
-# 4. add your OpenAI key
-echo "OPENAI_API_KEY=sk-..." > .env
-
-# 5. run a single analysis
-python - <<'PY'
-from src.agent_graph import analyze
-print(analyze("LangGraph makes agent flows easy."))
-PY
+Create **.env**:
+```
+OPENAI_API_KEY=sk‑...
+ROOSTOO_KEY=...
+ROOSTOO_SECRET=...
+PINECONE_API_KEY=...
+PINECONE_ENV=us-east-1 
+PINECONE_INDEX=r0-memory
+OPENAI_MODEL=gpt-4o-mini    # or gpt-4.1
 ```
 
 ---
+## 🚀 Running
 
-## 🛠  Developer commands
+```bash
+python -m src.cli  # example CLI wrapper (or import app from src.agent_graph)
+```
 
-| Action | Command |
-|--------|---------|
-| Run full agent loop on custom text | `python -m src.agent_graph` |
-| Offline unit tests                | `PYTHONPATH=$(pwd) pytest -q` |
-| Pre‑commit cache clean            | `git rm -r --cached **/__pycache__/` |
-
----
-
-## 🔑 Environment variables
-
-| Name | Required | Description |
-|------|----------|-------------|
-| `OPENAI_API_KEY` | ✅ | Secret key for GPT‑4o‑mini or other Chat Completions model |
-
-Copy `.env.example` → `.env` and fill in your key.
+Example interaction:
+```
+> Give me the server time
+1745066524030
+> What did you just tell me about time?
+I just told you the server time was 1745066524030.
+```
 
 ---
+## 🧠 How Memory Works
 
-## 📝 License
-
-MIT — see `LICENSE`.
+1. **Save** – `memory_node` stores the assistant’s final answer as a plain string in Pinecone.
+2. **Retrieve** – On the next turn, top‑`k` similar snippets are fetched with cosine similarity and injected into the LLM context as **assistant messages**, allowing GPT‑4 to quote them naturally.
+3. The `State` schema includes `recalled: List[str]` so LangGraph keeps the memories in the final state.
 
 ---
+## 🗺 TODO / Roadmap
 
-## 🙏 Credits
+- [ ] **Short‑term RAM window** – add `ConversationBufferWindowMemory` (k=4) so clarifications don’t hit Pinecone every turn.
+- [ ] **Guardrails** – budget limiter node to cap daily order volume & API spend.
+- [ ] **Strategy executor** – multi‑tool loop (`getBalance → calc qty → placeOrder`).  Requires a bounded counter to avoid recursion.
+- [ ] **Web dashboard** – React front‑end to visualize positions and chat.
+- [ ] **CI/CD** – GitHub Actions: lint, pytest, run sample conversation, deploy docs.
+- [ ] **Model upgrade switch** – env flag to swap `gpt-4o-mini` ↔ `gpt-4.1` when available.
+- [ ] **Vector pruning** – periodic job to collapse redundant memories (embedding‑clustering).
 
-Based on *“The Complete Guide to Building Your First AI Agent with
-LangGraph”* by Paolo Perrone (Mar 2025, Data Science Collective).
-https://medium.com/data-science-collective/the-complete-guide-to-building-your-first-ai-agent-its-easier-than-you-think-c87f376c84b2
+---
+## 📚 References
+
+[^1]: LangGraph documentation – state graphs, conditional edges.  <https://python.langchain.com/v0.1/docs/langgraph/>  ([python.langchain.com](https://python.langchain.com/v0.1/docs/langgraph/?utm_source=chatgpt.com))
+[^2]: Roostoo Public API spec – signed endpoints.  <https://mock-api.roostoo.com>  ([platform.openai.com](https://platform.openai.com/docs/models/gpt-4o-mini?utm_source=chatgpt.com))
+[^3]: OpenAI model IDs & context windows – GPT‑4o, GPT‑4.1.  <https://platform.openai.com/docs/models>  ([docs.pinecone.io](https://docs.pinecone.io/guides/indexes/create-an-index?utm_source=chatgpt.com))
+[^4]: Pinecone serverless index quick‑start (AWS us‑east‑1).  <https://docs.pinecone.io/guides/indexes/create-an-index>  ([docs.pinecone.io](https://docs.pinecone.io/guides/indexes/create-an-index?utm_source=chatgpt.com))
+[^5]: LangChain testing guide – mocking LLMs.  <https://python.langchain.com/docs/how_to/>  ([python.langchain.com](https://python.langchain.com/docs/how_to/?utm_source=chatgpt.com))
+
