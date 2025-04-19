@@ -23,9 +23,9 @@ ai_agent_project/
 ├─ README.md               # you are here
 ├─ test_setup.py           # hello‑LLM sanity check
 └─src/
-   ├─ agent_state.py      # Memory: TypedDict schema for the running state
-   ├─ nodes.py            # Brain: three capability functions
-   └─ agent_graph.py      # Scopes: LangGraph wiring + `analyze()` helper
+   ├─ agent_state.py      # defines the shape of the boxes (state).
+   ├─ nodes.py            # defines what happens inside each box.
+   └─ agent_graph.py      # defines how the boxes are connected.
 
 ```
 
