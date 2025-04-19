@@ -1,40 +1,40 @@
+# src/agent_graph.py
 """
-agent_graph.py
-Builds the LangGraph that flows:
-    classify ➜ extract ➜ summarize ➜ END
-and exposes `analyze(text)` for quick use.
+LangGraph wiring for R0
+-----------------------
+
+Flow:
+    think  ──►  act  ──►  think (loop)…  ──►  END
 """
 
 from langgraph.graph import StateGraph, END
-from src.agent_state import State
-from src.nodes import (
-    classification_node,
-    entity_extraction_node,
-    summarize_node,
-)
 
-# ── 1.  Build the graph skeleton -------------------------------------
+from src.agent_state import State
+from src.nodes import think_node, act_node
+
+
+# ── 1. Build the graph ─────────────────────────────────────────────
 wf = StateGraph(State)
 
-wf.add_node("classify",  classification_node)
-wf.add_node("extract",   entity_extraction_node)
-wf.add_node("summarize", summarize_node)
+wf.add_node("think", think_node)
+wf.add_node("act",   act_node)
 
-# ── 2.  Connect nodes -------------------------------------------------
-wf.set_entry_point("classify")
-wf.add_edge("classify",  "extract")
-wf.add_edge("extract",   "summarize")
-wf.add_edge("summarize", END)
+wf.set_entry_point("think")
 
-# ── 3.  Compile to a runnable app ------------------------------------
+# After every act, jump back to think so the LLM can decide next step
+wf.add_edge("act", "think")
+
+# Branch out of the loop when think_node returns no action
+wf.add_conditional_edges(
+    "think",
+    {
+        # go to "act" while there's still a JSON tool call to execute
+        "act": lambda s: s.get("action") is not None,
+
+        # otherwise finish the workflow
+        END:   lambda s: s.get("action") is None,
+    },
+)
+
+# ── 2. Compile to an executable app ────────────────────────────────
 app = wf.compile()
-
-# Convenience wrapper --------------------------------------------------
-def analyze(text: str) -> State:
-    """
-    Run the full flow on `text` and return the final state dict.
-    Usage:
-        from src.agent_graph import analyze
-        result = analyze("Some Medium article ...")
-    """
-    return app.invoke({"text": text})
