@@ -26,25 +26,40 @@ import json
 
 # ── 1. SYSTEM PROMPT ──────────────────────────────────────────────────
 SYSTEM_MSG = (
-    "You are R0, an autonomous trading assistant for the Roostoo exchange. "
-    " • Place MARKET or LIMIT orders (placeOrder)\n"
-    " • Query, cancel, and count orders (queryOrder, cancelOrder, getPendingCount)\n"
-    " • Show balances and market tickers (getBalance, getTicker, getExchangeInfo)\n\n"
-    "After you run a tool you will see its JSON result. \n"
-    "Summarise that result for the user in plain English unless the user \n"
-    "explicitly asks for the raw JSON.  \n"
-    "If the user asks for anything outside those capabilities, politely refuse.\n"
-    "If you need to remember something, say 'I will remember that.'\n"
-    "If you need to recall something, say 'I will recall that.'\n"
-    "If you need to ask the user for more information, say 'I need more information.'\n"
-    "If you need to ask the user for a follow-up question, say 'I have a question.'\n"  
+    "You are **R0**, an autonomous trading assistant for the Roostoo mock‑exchange.\n\n"
+
+    "💼 **Things you are allowed to do**\n"
+    "• Place trades with *exactly* these fields → {pair, side, type, quantity[, price]}  → `placeOrder`\n"
+    "  – `side` must be `BUY` or `SELL` (UPPER‑CASE)\n"
+    "  – `type` must be `MARKET` or `LIMIT`  (UPPER‑CASE)\n"
+    "  – `price` is required only for `LIMIT` orders\n"
+    "• Look up balances  → `getBalance`\n"
+    "• Look up market price / ticker  → `getTicker`\n"
+    "• Get trading rules  → `getExchangeInfo`\n"
+    "• Check / cancel / count orders  → `queryOrder`, `cancelOrder`, `getPendingCount`\n\n"
+
+    "📐 **USD‑to‑coin conversion rule**\n"
+    "If the user gives an amount in *USD* instead of a coin quantity:\n"
+    "1. Call **`getTicker(pair=\"BTC/USD\")`** (or the requested pair) and read `LastPrice`.\n"
+    "2. Compute `quantity = usd_amount / LastPrice` and round **to 6 decimals**.\n"
+    "3. Use that `quantity` when you call `placeOrder`.\n\n"
+
+    "🚦 **Workflow guidance**\n"
+    "• Plan step‑by‑step.  Call as many tools as needed until the task is complete.\n"
+    "• After every tool you will see its JSON.  Decide whether another tool call is needed.\n"
+    "• When no more tools are required, *summarise the final JSON(s) in plain English*.\n"
+    "• If a tool errors (e.g., insufficient balance), explain the problem instead of crashing.\n\n"
+    "When you call placeOrder, pass the keys pair, side, type, quantity and (for LIMIT) price.\n"
+
+    "❌ If the user requests anything outside these capabilities, politely refuse.\n"
 )
+
 
 FUNCTION_SCHEMAS = [convert_to_openai_function(t) for t in TOOLS]
 
 # ── 2. INITIALISE LLM WITH TOOL SCHEMAS ───────────────────────────────
 llm = ChatOpenAI(
-    model="gpt-4.1-nano",
+    model="gpt-4.1",
     temperature=0,
     max_tokens=4096,
     model_kwargs={"functions": FUNCTION_SCHEMAS}, 
@@ -103,7 +118,11 @@ def memory_node(state: State) -> dict:
         save_memory(str(result))         # ① store answer only
 
     recalls = retrieve_memory(text, k=4)
-    out = {"recalled": recalls}
+    out = {
+        "result": result,          # may be JSON or plain text
+        "recalled": recalls,
+        "loop_count": state.get("loop_count", 0) + 1
+    }
     if result is not None:
         out["result"] = result
     return out

@@ -18,8 +18,9 @@ Usage in your graph
 from __future__ import annotations
 from typing import Dict, Any
 
+
 import src.wrappers as w
-from langchain.tools import tool
+from langchain.tools import tool, StructuredTool
 
 # ──────────────────────── PUBLIC (no‑auth) TOOLS ──────────────────────────
 
@@ -55,16 +56,37 @@ def getPendingCount() -> dict:
     return w.get_pending_count()
 
 
+# ────────────────────── placeOrder tool (patched) ────────────────────
 @tool
 def placeOrder(
     pair: str,
-    side: str,                       # BUY or SELL
-    otype: str,                      # MARKET or LIMIT
+    side: str,                             # BUY or SELL
     quantity: str,
-    price: float | None = None,      # required for LIMIT
+    # Accept *either* `type` or `otype` from the LLM ------------------
+    type: str | None = None,               # MARKET or LIMIT (preferred)
+    otype: str | None = None,              # legacy fallback
+    price: float | None = None,            # required for LIMIT
 ) -> dict:
-    """Place a MARKET or LIMIT order."""
-    return w.place_order(pair, side, otype, quantity, price)
+    """
+    Place a MARKET or LIMIT order.
+
+    • `side` and `type` are case‑insensitive; they will be upper‑cased
+      before the request is sent.  
+    • You may pass EITHER `type` (recommended) OR legacy `otype`.
+    • For LIMIT orders you **must** supply `price`.
+    """
+    # ── normalise inputs ────────────────────────────────────────────
+    side_uc  = side.upper()
+    t        = (type or otype or "").upper()          # allow both keys
+
+    if side_uc not in {"BUY", "SELL"}:
+        raise ValueError("side must be BUY or SELL")
+    if t not in {"MARKET", "LIMIT"}:
+        raise ValueError("type must be MARKET or LIMIT")
+
+    # ── forward to wrapper (wrapper expects otype) ──────────────────
+    return w.place_order(pair, side_uc, t, quantity, price)
+
 
 
 @tool

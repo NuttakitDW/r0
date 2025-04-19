@@ -121,11 +121,18 @@ def place_order(pair: str, side: str, otype: str,
         "quantity": quantity,
         "timestamp": int(time.time() * 1000),
     }
+
+    side  = side.upper()
+    otype = otype.upper() 
+    
     if otype.upper() == "LIMIT":
         if price is None:
             raise ValueError("price required for LIMIT orders")
         body["price"] = price
-
+    if side not in ("BUY", "SELL"):
+        raise ValueError("side must be BUY or SELL")
+    if otype not in ("MARKET", "LIMIT"):
+        raise ValueError("type must be MARKET or LIMIT")
     # Canonical key order for signature
     payload = "&".join(f"{k}={body[k]}" for k in sorted(body))
     hdr = {
