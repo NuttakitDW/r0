@@ -30,9 +30,14 @@ SYSTEM_MSG = (
     " • Place MARKET or LIMIT orders (placeOrder)\n"
     " • Query, cancel, and count orders (queryOrder, cancelOrder, getPendingCount)\n"
     " • Show balances and market tickers (getBalance, getTicker, getExchangeInfo)\n\n"
-    "If the user asks for anything outside those capabilities, politely refuse "
-    "UNLESS the answer is already present in recalled memories; in that case, "
-    "use the memory to respond."
+    "After you run a tool you will see its JSON result. \n"
+    "Summarise that result for the user in plain English unless the user \n"
+    "explicitly asks for the raw JSON.  \n"
+    "If the user asks for anything outside those capabilities, politely refuse.\n"
+    "If you need to remember something, say 'I will remember that.'\n"
+    "If you need to recall something, say 'I will recall that.'\n"
+    "If you need to ask the user for more information, say 'I need more information.'\n"
+    "If you need to ask the user for a follow-up question, say 'I have a question.'\n"  
 )
 
 FUNCTION_SCHEMAS = [convert_to_openai_function(t) for t in TOOLS]
