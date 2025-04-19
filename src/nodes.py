@@ -26,58 +26,49 @@ import json
 
 # ── 1. SYSTEM PROMPT ──────────────────────────────────────────────────
 SYSTEM_MSG = (
-    "You are **R0**, an autonomous trading assistant for the Roostoo "
-    "exchange. Your allowed actions are strictly limited to:\n"
-    " • Place MARKET or LIMIT orders (placeOrder)\n"
-    " • Query, cancel, and count orders (queryOrder, cancelOrder, getPendingCount)\n"
-    " • Show balances and market tickers (getBalance, getTicker, getExchangeInfo)\n\n"
-    "If you see “recalled memories” in the conversation, use them to answer the user’s question accurately.\n"
-    "If the user asks for anything outside those capabilities, politely refuse.\n"
+    "You are R0, an autonomous trading assistant for the Roostoo exchange. "
+    "… (trading bullets) …\n"
+    "If the user asks for anything outside those capabilities, politely refuse "
+    "UNLESS the answer is already present in recalled memories; in that case, "
+    "use the memory to respond."
 )
 
 FUNCTION_SCHEMAS = [convert_to_openai_function(t) for t in TOOLS]
 
 # ── 2. INITIALISE LLM WITH TOOL SCHEMAS ───────────────────────────────
 llm = ChatOpenAI(
-    model="gpt-4o-mini",
+    model="gpt-4.1-nano",
     temperature=0,
+    max_tokens=4096,
     model_kwargs={"functions": FUNCTION_SCHEMAS}, 
 )
 
 # ── 3. THINK NODE  ────────────────────────────────────────────────────
-def think_node(state: State) -> Dict[str, Any]:
-    print("➜ think", state.get("action"))
+def think_node(state: State) -> dict:
     """
-    Decide next action based on the latest user prompt *and* the
-    previous tool result (if any). Returns either:
-
-        {"action": {...}}  – a JSON function call selected by the LLM
-        {"result": "..."}  – final natural‑language answer
+    Decide next action based on:
+      • recalled memories (if any)
+      • previous tool result (if any)
+      • newest user prompt
     """
-    # Build message list
     messages = [SystemMessage(content=SYSTEM_MSG)]
-    
+
+    # ── 1 ▸ inject recalled snippets (oldest→newest) ──────────────
     for chunk in state.get("recalled", []):
         messages.append(AIMessage(content=chunk))
 
-    # Provide last tool result (if any) so the LLM can chain reasoning
+    # ── 2 ▸ include prior tool result, if one exists ─────────────
     if state.get("result") is not None:
         messages.append(AIMessage(content=str(state["result"])))
 
-    # Latest user input
+    # ── 3 ▸ finally add the new user prompt ──────────────────────
     messages.append(HumanMessage(content=state["text"]))
 
-    # Call the model
+    # ── 4 ▸ call the model with tool schemas bound ───────────────
     resp = llm.invoke(messages)
+    fc   = resp.additional_kwargs.get("function_call")
 
-    fc = resp.additional_kwargs.get("function_call")
-    if fc:
-        # LLM chose one of the registered tools
-        return {"action": fc}
-
-    # No tool call => conversation finished
-    return {"result": resp.content}
-
+    return {"action": fc} if fc else {"result": resp.content.strip()}
 
 # ── 4. ACT NODE  ──────────────────────────────────────────────────────
 def act_node(state: State) -> Dict[str, Any]:
@@ -98,21 +89,13 @@ def act_node(state: State) -> Dict[str, Any]:
 # ── 4. MEMORY NODE  ──────────────────────────────────────────────────────
 
 def memory_node(state: State) -> dict:
-    """Write to Pinecone and return recalls (always include the key)."""
     text   = state["text"]
-    result = state.get("result")
+    result = state.get("result")         # already a string/int
 
-    # ① save current turn
-    blob = (
-        f"[{datetime.utcnow().isoformat(timespec='seconds')}]\n"
-        f"USER: {text}\nASSISTANT: {result}"
-    )
-    save_memory(blob)
+    if result is not None:               # nothing to save if tool failed
+        save_memory(str(result))         # ① store answer only
 
-    # ② pull top‑k similar
     recalls = retrieve_memory(text, k=4)
-
-    # ③ always include 'recalled'; forward result only if present
     out = {"recalled": recalls}
     if result is not None:
         out["result"] = result
