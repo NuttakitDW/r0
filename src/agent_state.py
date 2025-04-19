@@ -12,9 +12,12 @@ from typing import TypedDict, List, Dict, Any, Optional
 
 class State(TypedDict, total=False):
     # ── prompt & chat ──────────────────────────────────────────────
-    text: str                                 # latest user prompt
-    history: List[Dict[str, Any]]             # optional chat or trace log
+    text: str
+    history: List[Dict[str, Any]]
 
     # ── tool execution loop ────────────────────────────────────────
-    action: Optional[Dict[str, Any]]          # JSON tool call chosen by LLM
-    result: Optional[Dict[str, Any] | str]    # wrapper response OR final answer
+    action: Optional[Dict[str, Any]]
+    result: Optional[Dict[str, Any] | str]
+
+    # ── memory ­────────────────────────────────────────────────────
+    recalled: List[str]                 # <‑‑ NEW: always a list (may be empty)
