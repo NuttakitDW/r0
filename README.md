@@ -32,7 +32,6 @@ It reasons with GPT‑4‑o mini (or GPT‑4.1), executes signed HTTP calls to 
 
 ```bash
 python3 -m venv agent_env && source agent_env/bin/activate
-pip install -r requirements.txt  # langgraph, langchain-openai, pinecone-docs …
 ```
 
 Create **.env**:
