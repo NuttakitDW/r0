@@ -1,4 +1,4 @@
-import os, time, hmac, hashlib, requests, json
+import os, time, hmac, hashlib, requests, urllib.parse
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -19,6 +19,96 @@ def get_server_time() -> int:
     r = requests.get(url, timeout=5)
     r.raise_for_status()
     return int(r.json()["ServerTime"])
+
+def get_exchange_info() -> dict:
+    """GET /v3/exchangeInfo – returns exchange information."""
+    url = f"{BASE}/exchangeInfo"
+    r = requests.get(url, timeout=5)
+    r.raise_for_status()
+    return r.json()
+
+def get_ticker(pair: str) -> dict:
+    """
+    GET /v3/ticker?pair=…&timestamp=…
+    Returns last price, bid/ask, volume for `pair`.
+    """
+    ts   = int(time.time() * 1000)                       # current epoch‑ms
+    pair_q = urllib.parse.quote_plus(pair)               # encode 'BTC/USD' → 'BTC%2FUSD'
+    url  = f"{BASE}/ticker?pair={pair_q}&timestamp={ts}"
+
+    r = requests.get(url, timeout=5)
+
+    try:
+        data = r.json()
+    except ValueError:
+        data = {"raw": r.text.strip()}
+
+    if not r.ok:
+        raise RoostooError(f"HTTP {r.status_code} {r.reason} — {data}")
+
+    if isinstance(data, dict) and (not data.get("Success", True) or data.get("ErrMsg")):
+        raise RoostooError(f"Exchange error: {data.get('ErrMsg', data)}")
+
+    return data
+
+def get_balance() -> dict:
+    """GET /v3/balance?timestamp=… – returns account balance."""
+    ts = int(time.time() * 1000)                # current epoch‑ms
+
+    payload = f"timestamp={ts}"                 # 1. canonical string
+    sig     = _sign(payload)                    # 2. HMAC
+
+    url = f"{BASE}/balance?{payload}"           # 3. include timestamp in URL
+    hdr = {
+        "RST-API-KEY": KEY,
+        "MSG-SIGNATURE": sig,
+    }
+
+    r = requests.get(url, headers=hdr, timeout=5)
+
+    # --- robust error handling like other helpers ---
+    try:
+        data = r.json()
+    except ValueError:
+        data = {"raw": r.text.strip()}
+
+    if not r.ok:
+        raise RoostooError(f"HTTP {r.status_code} {r.reason} — {data}")
+    if isinstance(data, dict) and data.get("ErrMsg"):
+        raise RoostooError(f"Exchange error: {data['ErrMsg']}")
+
+    return data
+
+def get_pending_count() -> dict:
+    """
+    GET /v3/pending_count?timestamp=…
+    Returns the count of pending orders.
+    """
+    timestamp = int(time.time() * 1000)         # Generate current epoch‑ms
+    payload = f"timestamp={timestamp}"          # 1. canonical string
+    sig     = _sign(payload)                    # 2. HMAC
+
+    url = f"{BASE}/pending_count?{payload}"     # 3. include timestamp in URL
+    hdr = {
+        "RST-API-KEY": KEY,
+        "MSG-SIGNATURE": sig,
+    }
+
+    r = requests.get(url, headers=hdr, timeout=5)
+
+    # --- robust error handling like other helpers ---
+    try:
+        data = r.json()
+    except ValueError:
+        data = {"raw": r.text.strip()}
+
+    if not r.ok:
+        raise RoostooError(f"HTTP {r.status_code} {r.reason} — {data}")
+    if isinstance(data, dict) and data.get("ErrMsg"):
+        raise RoostooError(f"Exchange error: {data['ErrMsg']}")
+
+    return data
+
 
 def place_order(pair: str, side: str, otype: str,
                 quantity: str, price: float | None = None) -> dict:
