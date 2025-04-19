@@ -76,20 +76,6 @@ Copy `.env.example` → `.env` and fill in your key.
 
 ---
 
-## 🧪 Tests
-
-`tests/` uses **pytest**.  
-The default fixture swaps the real LLM for a local `EchoLLM`, so tests run
-offline and free:
-
-```bash
-pytest -q
-```
-
-Set `CI_REAL_KEYS=true` to hit the real model in CI.
-
----
-
 ## 📝 License
 
 MIT — see `LICENSE`.
