@@ -1,5 +1,6 @@
 import os, time, hmac, hashlib, requests, urllib.parse
 from dotenv import load_dotenv
+from typing import Any, Dict, Optional
 
 load_dotenv()
 KEY, SECRET = os.getenv("ROOSTOO_KEY"), os.getenv("ROOSTOO_SECRET")
@@ -163,21 +164,30 @@ def place_order(pair: str, side: str, otype: str,
 
 def query_order(
     *,
-    order_id: str | None = None,
-    pair: str | None = None,
-    offset: int | None = None,
-    limit: int | None = None,
-    pending_only: bool | None = None,
-) -> dict:
+    order_id: Optional[str] = None,
+    pair: Optional[str] = None,
+    offset: Optional[int] = None,
+    limit: Optional[int] = None,
+    pending_only: Optional[bool] = None,
+) -> Dict[str, Any]:
+    """
+    Query a single order by `order_id` **or** filter orders by pair/offset/…
+
+    Raises
+    ------
+    RoostooError
+        – on HTTP/network issues
+        – when the exchange returns {"Success": false} or a non‑empty ErrMsg
+    """
 
     ts = int(time.time() * 1000)
 
-    # — 1. Build body dict ---------------------------------------------------
-    body: dict[str, str] = {"timestamp": str(ts)}
+    # ── 1. Build form/body dict ───────────────────────────────────────
+    body: Dict[str, str] = {"timestamp": str(ts)}
 
     if order_id:
-        body["order_id"] = str(order_id)
-    else:  # order_id absent → other filters allowed
+        body["order_id"] = order_id
+    else:
         if pair:
             body["pair"] = pair
         if offset is not None:
@@ -187,29 +197,33 @@ def query_order(
         if pending_only is not None:
             body["pending_only"] = "TRUE" if pending_only else "FALSE"
 
-    # Canonical payload (alpha‑sorted keys)
-    payload = "&".join(f"{k}={body[k]}" for k in sorted(body))
+    # ► FIX #1 – proper URL‑encoding instead of manual join
+    payload = urllib.parse.urlencode(body, safe="/")
+
     sig = _sign(payload)
 
     url = f"{BASE}/query_order"
-    hdr = {
+    headers = {
         "Content-Type": "application/x-www-form-urlencoded",
         "RST-API-KEY": KEY,
         "MSG-SIGNATURE": sig,
     }
 
-    # — 2. POST the form body -------------------------------------------------
-    r = requests.post(url, data=payload, headers=hdr, timeout=10)
-
-    # — 3. Robust error handling ---------------------------------------------
+    # ── 2. POST the request ───────────────────────────────────────────
     try:
-        data = r.json()
-    except ValueError:
-        data = {"raw": r.text.strip()}
+        resp = requests.post(url, data=payload, headers=headers, timeout=10)
+        resp.raise_for_status()                     # ► FIX #2 – HTTP guard
+    except requests.RequestException as e:
+        raise RoostooError(f"Network/HTTP error: {e}") from e
 
-    if not r.ok:
-        raise RoostooError(f"HTTP {r.status_code} {r.reason} — {data}")
-    if isinstance(data, dict) and (not data.get("Success", True) or data.get("ErrMsg")):
+    # ── 3. Parse JSON safely ──────────────────────────────────────────
+    try:
+        data: Dict[str, Any] = resp.json()
+    except ValueError:                             # not JSON?
+        raise RoostooError(f"Non‑JSON response: {resp.text.strip()}")
+
+    # ── 4. Exchange‑level error handling ──────────────────────────────
+    if not data.get("Success", True) or data.get("ErrMsg"):
         raise RoostooError(f"Exchange error: {data.get('ErrMsg', data)}")
 
     return data
